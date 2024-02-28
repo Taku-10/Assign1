@@ -3,7 +3,7 @@ import threading
 
 # Server configuration
 SERVER_IP = '127.0.0.1'  
-SERVER_PORT = 9999
+SERVER_PORT = 5050
 
 # Client socket setup
 client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -28,8 +28,6 @@ def manage_server_responses():
             # Check if registration was successful
             elif data.startswith("Successfully registered"):
                 logged_in = True
-            else:
-                logged_in = False
     except ConnectionResetError:
         print("Connection to server closed.")
 
