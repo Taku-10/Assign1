@@ -2,8 +2,8 @@ import socket
 import threading
 
 # Server configuration
-SERVER_IP = '127.0.0.1' 
-SERVER_PORT = 5050
+SERVER_IP = "127.0.0.1"
+SERVER_PORT = 9999
 
 # Maintain a list of active clients
 active_clients = []
@@ -17,6 +17,7 @@ server_socket.bind((SERVER_IP, SERVER_PORT))
 server_socket.listen()
 
 def manage_client_connections(client_socket, address):
+    global logged_in 
     try:
         # Initialize the client as not logged in
         logged_in = False
@@ -28,7 +29,7 @@ def manage_client_connections(client_socket, address):
 
             if data.startswith("/list"):
                 if logged_in:
-                    user_list = "\n".join(client_info.values())
+                    user_list = "\n".join(client_info.keys())  # Extract usernames, not values
                     client_socket.send(f"Available users:\n{user_list}".encode('utf-8'))
                 else:
                     client_socket.send("Please log in or register first.".encode('utf-8'))
@@ -37,9 +38,12 @@ def manage_client_connections(client_socket, address):
             # Check for registration command
             elif data.startswith("register"):
                 if not logged_in:
-                    username = data.split(" ", 1)[1]
-                    register_new_client(username, client_socket)
-                    logged_in = True
+                    command_parts = data.split(" ", 2)
+                    if len(command_parts) == 3:
+                        username, password = command_parts[1], command_parts[2]
+                        logged_in = register_new_client(username, password, client_socket)
+                    else:
+                        client_socket.send("Invalid registration command. Usage: register <username> <password>".encode('utf-8'))
                 else:
                     client_socket.send("You are already logged in.".encode('utf-8'))
                 continue
@@ -47,9 +51,13 @@ def manage_client_connections(client_socket, address):
             # Check for login command
             elif data.startswith("/login "):
                 if not logged_in:
-                    username = data.split(" ", 1)[1]
-                    login_client(username, client_socket)
-                    logged_in = True
+                    command_parts = data.split(" ", 2)
+                    if len(command_parts) == 3:
+                        username, password = command_parts[1], command_parts[2]
+                        if (login_client(username, password, client_socket)):
+                            logged_in = True
+                    else:
+                        client_socket.send("Invalid login command. Usage: /login <username> <password>".encode('utf-8'))
                 else:
                     client_socket.send("You are already logged in.".encode('utf-8'))
                 continue
@@ -85,29 +93,39 @@ def manage_client_connections(client_socket, address):
         remove_client(client_socket)
         client_socket.close()
 
-def register_new_client(username, client_socket):
-    # Register a new client with the specified username
-    if username not in client_info.values():
-        client_info[client_socket] = username
-        active_clients.append(client_socket)
-        client_socket.send(f"Successfully registered as {username}".encode('utf-8'))
+def register_new_client(username, password, client_socket):
+    # Register a new client with the specified username and password
+    if username and password:
+        if username not in client_info:
+            client_info[username] = (client_socket, password)
+            active_clients.append(client_socket)
+            client_socket.send(f"Successfully registered as {username}".encode('utf-8'))
+            return True  # Return True to indicate successful registration
+        else:
+            client_socket.send(f"Username {username} is already taken. Please choose another.".encode('utf-8'))
     else:
-        client_socket.send(f"Username {username} is already taken. Please choose another.".encode('utf-8'))
+        client_socket.send("Both username and password are required for registration.".encode('utf-8'))
 
-def login_client(username, client_socket):
-    # Log in an existing client with the specified username
-    if username in client_info.values():
-        client_info[client_socket] = username
+    return False  # Return False for unsuccessful registration
+
+def login_client(username, password, client_socket):
+    # Log in an existing client with the specified username and password
+    if username in client_info and client_info[username][1] == password:
+        client_info[username] = (client_socket, password)
         active_clients.append(client_socket)
         client_socket.send(f"Successfully logged in as {username}".encode('utf-8'))
+        return True  # Return True to indicate successful login
     else:
-        client_socket.send(f"Username {username} not found. Please register first.".encode('utf-8'))
+        client_socket.send("Invalid username or password. Please try again.".encode('utf-8'))
+        return False  # Return False for unsuccessful login
 
 def remove_client(client_socket):
     # Remove a client from the active clients list
     if client_socket in active_clients:
-        del client_info[client_socket]
-        active_clients.remove(client_socket)
+        for username, (socket, _) in list(client_info.items()):
+            if socket == client_socket:
+                del client_info[username]
+                active_clients.remove(client_socket)
 
 def send_direct_message(sender_socket, target_username, message):
     # Send a direct message from one client to another
