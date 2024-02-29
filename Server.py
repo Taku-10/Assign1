@@ -2,141 +2,100 @@ import socket
 import threading
 
 # Server configuration
-SERVER_IP = '127.0.0.1' 
-SERVER_PORT = 5050
+SERVER_HOST = '127.0.0.1'
+SERVER_PORT_TCP = 9999
+SERVER_PORT_UDP = 5051
 
-# Maintain a list of active clients
-active_clients = []
+# Dictionary to store connected clients
+clients = {}
 
-# Dictionary to store client information (username: client_socket)
-client_info = {}
+# Function to handle TCP connections from clients
+def handle_tcp_client(client_socket, client_address):
+    print(f"[TCP] New connection from {client_address}")
+    client_socket.sendall("Successful".encode())
+    print("Successful connection sending acknowledgement...")
+    # Receive client's username
+    username = client_socket.recv(1024).decode()
+    clients[username] = client_socket
 
-# Server socket setup
-server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server_socket.bind((SERVER_IP, SERVER_PORT))
-server_socket.listen()
+    print("new Client User name:",username)
+    
+    #sending to acknowledgement to client
+    menu_options = """
+Menu Options:
+1. View Online Users
+2. Send Message
+3. View Messages
+4. Hide Online Status
+5. Exit
+"""
+    client_socket.sendall(menu_options.encode())
 
-def manage_client_connections(client_socket, address):
-    try:
-        # Initialize the client as not logged in
-        logged_in = False
-
-        while True:
-            data = client_socket.recv(1024).decode('utf-8')
-            if not data:
-                break  # Connection closed by client
-
-            if data.startswith("/list"):
-                if logged_in:
-                    user_list = "\n".join(client_info.values())
-                    client_socket.send(f"Available users:\n{user_list}".encode('utf-8'))
-                else:
-                    client_socket.send("Please log in or register first.".encode('utf-8'))
-                continue
-
-            # Check for registration command
-            elif data.startswith("register"):
-                if not logged_in:
-                    username = data.split(" ", 1)[1]
-                    register_new_client(username, client_socket)
-                    logged_in = True
-                else:
-                    client_socket.send("You are already logged in.".encode('utf-8'))
-                continue
-
-            # Check for login command
-            elif data.startswith("/login "):
-                if not logged_in:
-                    username = data.split(" ", 1)[1]
-                    login_client(username, client_socket)
-                    logged_in = True
-                else:
-                    client_socket.send("You are already logged in.".encode('utf-8'))
-                continue
-
-            # Check if the client is logged in before processing further commands
-            if not logged_in:
-                client_socket.send("Please log in or register first.".encode('utf-8'))
-                continue
-
-            # Check for command structure for direct messaging
-            elif data.startswith("/msg "):
-                command_parts = data.split(" ", 2)
-                if len(command_parts) == 3:
-                    target_username = command_parts[1]
-                    message = command_parts[2]
-                    
-                    send_direct_message(client_socket, target_username, message)
-                else:
-                    client_socket.send("Invalid /msg command. Usage: /msg <username> <message>".encode('utf-8'))
-                continue
-
-            # Broadcast the message to all connected clients
-            elif data.startswith("/broadcast "):
-                send_message_to_all(f"{client_info[client_socket]}: {data[11:]}")  # Extract message after "/broadcast"
-                continue
-
-            # Handle other commands or broadcast messages
-            send_message_to_all(f"{client_info[client_socket]}: {data}")
-
-    except ConnectionResetError:
-        pass
-    finally:
-        remove_client(client_socket)
-        client_socket.close()
-
-def register_new_client(username, client_socket):
-    # Register a new client with the specified username
-    if username not in client_info.values():
-        client_info[client_socket] = username
-        active_clients.append(client_socket)
-        client_socket.send(f"Successfully registered as {username}".encode('utf-8'))
-    else:
-        client_socket.send(f"Username {username} is already taken. Please choose another.".encode('utf-8'))
-
-def login_client(username, client_socket):
-    # Log in an existing client with the specified username
-    if username in client_info.values():
-        client_info[client_socket] = username
-        active_clients.append(client_socket)
-        client_socket.send(f"Successfully logged in as {username}".encode('utf-8'))
-    else:
-        client_socket.send(f"Username {username} not found. Please register first.".encode('utf-8'))
-
-def remove_client(client_socket):
-    # Remove a client from the active clients list
-    if client_socket in active_clients:
-        del client_info[client_socket]
-        active_clients.remove(client_socket)
-
-def send_direct_message(sender_socket, target_username, message):
-    # Send a direct message from one client to another
-    for client_socket, username in client_info.items():
-        if username == target_username:
-            client_socket.send(f"Direct message from {client_info[sender_socket]}: {message}".encode('utf-8'))
-            return
-    sender_socket.send(f"User {target_username} not found.".encode('utf-8'))
-
-def send_message_to_all(message):
-    # Broadcast a message to all connected clients
-    for client in active_clients:
-        try:
-            client.send(message.encode('utf-8'))
-        except BrokenPipeError:
-            pass
-
-def run_server():
-    print(f"Server listening on {SERVER_IP}:{SERVER_PORT}")
-
+   
     while True:
-        client_socket, address = server_socket.accept()
-        print(f"New connection from {address}")
-        
-        active_clients.append(client_socket)
+        try:
+            message = client_socket.recv(1024).decode()
+            if message:
+                if message == "1":
+                    send_online_users(client_socket)
+                elif message=="2": 
+                    del clients[username ]
+                    client_socket.sendall("Client is now Offline".encode())
+                    # broadcast(message, username)
+                elif message.startswith("/msg "):
+                    print("trying to send...")
+                    recipient, message_body = message.split(maxsplit=1)[1].split(maxsplit=1)
+                    print(recipient)
+                    print(message_body)
+                    if recipient in clients:
+                        recipient_socket = clients[recipient]
+                        recipient_socket.sendall(f"Message from {username}: {message_body}".encode())
+                        client_socket.sendall("Message delivered.".encode())
+                    else:
+                        client_socket.sendall("Recipient is not online.".encode())
+ 
+        except Exception as e:
+            print(f"[TCP] Error: {e}")
+            del clients[username]
+            break
 
-        # Handle each client in a separate thread
-        client_thread = threading.Thread(target=manage_client_connections, args=(client_socket, address))
+# Function to broadcast message to all connected clients
+def broadcast(message, sender):
+    for username, client_socket in clients.items():
+        if username != sender:
+            try:
+                client_socket.sendall(message.encode())
+            except Exception as e:
+                print(f"[TCP] Error broadcasting message to {username}: {e}")
+                del clients[username]
+
+# Function to send a list of online users to the requesting client
+def send_online_users(client_socket):
+    online_users = ", ".join(clients.keys())
+    client_socket.sendall(online_users.encode())
+
+# Function to handle UDP connections for media streaming (not implemented)
+def handle_udp_client():
+    pass
+
+# Main function to start the server
+def main():
+    # Create TCP server socket
+    tcp_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    tcp_server_socket.bind((SERVER_HOST, SERVER_PORT_TCP))
+    tcp_server_socket.listen(5)
+    print(f"[TCP] Server listening on {SERVER_HOST}:{SERVER_PORT_TCP}")
+
+    # Create UDP server socket
+    udp_server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    udp_server_socket.bind((SERVER_HOST, SERVER_PORT_UDP))
+    print(f"[UDP] Server listening on {SERVER_HOST}:{SERVER_PORT_UDP}")
+
+    # Listen for incoming TCP connections
+    while True:
+        client_socket, client_address = tcp_server_socket.accept()
+        client_thread = threading.Thread(target=handle_tcp_client, args=(client_socket, client_address))
         client_thread.start()
 
 if __name__ == "__main__":
-    run_server()
+    main()
