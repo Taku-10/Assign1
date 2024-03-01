@@ -1,5 +1,6 @@
 import socket
 import threading
+import time
 
 # Server configuration
 SERVER_HOST = '127.0.0.1'
@@ -7,7 +8,64 @@ SERVER_PORT_TCP = 9999
 SERVER_PORT_UDP = 5051
 
 # Dictionary to store connected clients
+
+port_Num={}
 clients = {}
+thread_Clients={}
+hidden_Clients=[]
+
+
+def send_video_chunks(video_data, res_Socket, chunk_size=1024):
+    try:
+       
+        # Send the size of the video data first
+        res_Socket.sendall(str(len(video_data)).encode().ljust(1024))
+        
+        # Split the video data into chunks and send each chunk
+        for i in range(0, len(video_data), chunk_size):
+            chunk = video_data[i:i+chunk_size]
+            res_Socket.sendall(chunk)
+    
+    except Exception as e:
+        print(f"Error occurred while sending video chunks: {e}")
+    
+    finally:
+        # Close the client socket
+        res_Socket.close()
+
+def receive_video(client_socket):
+    try:
+        # Receive the size of the video data
+        video_size = int(client_socket.recv(1024).strip())
+        print(f"Receiving video data of size: {video_size} bytes")
+        
+        # Initialize an empty byte string to store the video data
+        video_data = b''
+        
+        # Keep track of the total bytes received
+        total_bytes_received = 0
+        
+        # Receive video data in chunks until the total bytes received equals the video size
+        while total_bytes_received < video_size:
+            # Receive a chunk of data from the server
+            chunk = client_socket.recv(min(video_size - total_bytes_received, 1024))
+            
+            # If the chunk is empty, the server has finished sending the video
+            if not chunk:
+                break
+            
+            # Append the chunk to the video data
+            video_data += chunk
+            
+            # Update the total bytes received
+            total_bytes_received += len(chunk)
+        
+        print("Video data received successfully!")
+        return video_data
+    
+    except Exception as e:
+        print(f"Error occurred while receiving video: {e}")
+    
 
 # Function to handle TCP connections from clients
 def handle_tcp_client(client_socket, client_address):
@@ -16,7 +74,11 @@ def handle_tcp_client(client_socket, client_address):
     print("Successful connection sending acknowledgement...")
     # Receive client's username
     username = client_socket.recv(1024).decode()
-    clients[username] = client_socket
+    if "1" in username:
+        thread_Clients[username]=client_socket
+        print("Its a thread.")
+    else:
+        clients[username] = client_socket
 
     print("new Client User name:",username)
     
@@ -24,59 +86,91 @@ def handle_tcp_client(client_socket, client_address):
     menu_options = """
 Menu Options:
 1. View Online Users
-2. Send Message
+2. Send Media(text or Video)
 3. View Messages
 4. Hide Online Status
-5. Exit
+5. UnHide Online Status
+6. Exit
 """
     client_socket.sendall(menu_options.encode())
 
-   
     while True:
         try:
             message = client_socket.recv(1024).decode()
             if message:
                 if message == "1":
                     send_online_users(client_socket)
+
+
                 elif message=="2": 
                     del clients[username ]
                     client_socket.sendall("Client is now Offline".encode())
-                    # broadcast(message, username)
-                elif message.startswith("/msg "):
-                    print("trying to send...")
+
+                elif message.startswith("/txt "):
+                        print("trying to send...")
+                        recipient, message_body = message.split(maxsplit=1)[1].split(maxsplit=1)
+                        print(recipient)
+                        newres = recipient + "1"
+                        print(newres)
+                        print(message_body)
+                        
+                        if newres in thread_Clients:
+                            recipient_socket = thread_Clients[newres]
+                            # Send the type of data ("txt")
+                            recipient_socket.sendall("txt".encode())
+                            
+                            # Wait for acknowledgment from the recipient
+                            time.sleep(2)
+                           
+                            # If acknowledgment received, send the message body
+
+                                # Send the message body
+                            recipient_socket.sendall(f"Message from {username}: {message_body}".encode())
+                            client_socket.sendall("Message delivered.".encode())
+                        else:
+                            client_socket.sendall("Recipient is not online.".encode())
+
+                elif message.startswith("/video "):
                     recipient, message_body = message.split(maxsplit=1)[1].split(maxsplit=1)
-                    print(recipient)
-                    print(message_body)
-                    if recipient in clients:
-                        recipient_socket = clients[recipient]
-                        recipient_socket.sendall(f"Message from {username}: {message_body}".encode())
-                        client_socket.sendall("Message delivered.".encode())
-                    else:
-                        client_socket.sendall("Recipient is not online.".encode())
- 
+                    newres = recipient + "1"
+                    client_socket.sendall("ACK".encode())
+                    video_data=receive_video(client_socket)
+                    if newres in thread_Clients:
+                            recipient_socket = thread_Clients[newres]
+                            recipient_socket.sendall(f"video {message_body}".encode())
+                            # Wait for acknowledgment from the recipient
+                            time.sleep(2)
+
+                            send_video_chunks(video_data,recipient_socket)
+
+                elif message.startswith("/hide "):
+                    recipient, message_body = message.split(maxsplit=1)[1].split(maxsplit=1)
+                    hidden_Clients.append(recipient)
+
+                elif message.startswith("/unhide "):
+                    recipient, message_body = message.split(maxsplit=1)[1].split(maxsplit=1)
+                    if recipient in hidden_Clients:
+                        hidden_Clients.remove(recipient)
+
+                elif message.startswith("/exit "):
+                    recipient, message_body = message.split(maxsplit=1)[1].split(maxsplit=1)
+                    del clients[recipient]
+
         except Exception as e:
             print(f"[TCP] Error: {e}")
             del clients[username]
             break
 
-# Function to broadcast message to all connected clients
-def broadcast(message, sender):
-    for username, client_socket in clients.items():
-        if username != sender:
-            try:
-                client_socket.sendall(message.encode())
-            except Exception as e:
-                print(f"[TCP] Error broadcasting message to {username}: {e}")
-                del clients[username]
 
 # Function to send a list of online users to the requesting client
 def send_online_users(client_socket):
-    online_users = ", ".join(clients.keys())
-    client_socket.sendall(online_users.encode())
+    # Filter clients' keys to exclude those in the HiddenClient array
+    if len(hidden_Clients)==len(clients):
+        client_socket.sendall("Noone is Online!!!".encode())
+    else:
+        online_users = ", ".join([username for username in clients.keys() if username not in hidden_Clients])
 
-# Function to handle UDP connections for media streaming (not implemented)
-def handle_udp_client():
-    pass
+        client_socket.sendall(online_users.encode())
 
 # Main function to start the server
 def main():
