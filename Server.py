@@ -65,7 +65,27 @@ def receive_video(client_socket):
     
     except Exception as e:
         print(f"Error occurred while receiving video: {e}")
-    
+
+def broadcast(sender_socket, sender_username, recipients, message_body):
+    # Iterate through specified recipients and send the message to each one
+    for recipient_username in recipients:
+        if recipient_username in clients:
+            recipient_socket = clients[recipient_username]
+            try:
+                # Save broadcast message to the sender's text file
+                with open(f"{sender_username}.txt", "a") as sender_file:
+                    sender_file.write(f"Broadcast to {', '.join(recipients)}: {message_body}\n")
+
+                # Save broadcast message to each recipient's text file
+                with open(f"{recipient_username}.txt", "a") as recipient_file:
+                    recipient_file.write(f"Broadcast from {sender_username}: {message_body}\n")
+
+                sender_socket.sendall(f"Broadcast sent to {', '.join(recipients)}.".encode())
+
+            except Exception as e:
+                print(f"Error occurred while broadcasting to {recipient_username}: {e}")
+        else:
+            sender_socket.sendall(f"Recipient {recipient_username} is not online.".encode())
 
 # Function to handle TCP connections from clients
 def handle_tcp_client(client_socket, client_address):
@@ -89,8 +109,8 @@ Menu Options:
 2. Send Media(text or Video)
 3. View Messages
 4. Hide Online Status
-5. UnHide Online Status
-6. Exit
+5. Unhide Online Status
+6. Broadcast message
 """
     client_socket.sendall(menu_options.encode())
 
@@ -155,6 +175,11 @@ Menu Options:
                 elif message.startswith("/exit "):
                     recipient, message_body = message.split(maxsplit=1)[1].split(maxsplit=1)
                     del clients[recipient]
+
+                elif message.startswith("/broadcast "):
+                    _, recipients_str, broadcast_message = message.split(maxsplit=2)
+                    recipients = recipients_str.split()
+                    broadcast(client_socket, username, recipients, broadcast_message)
 
         except Exception as e:
             print(f"[TCP] Error: {e}")

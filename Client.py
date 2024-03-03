@@ -240,10 +240,25 @@ def run_client():
                             print("No messages found.")
                 else:
                     print("No messages found.")
+            
+            elif logged_In and user_input == "4":
+                client_socket.send(f"/hide {usr} {m}".encode('utf-8'))
+                print("your online status is now Hidden")
 
-            elif user_input == "6":
-                client_socket.send(f"/exit {usr} {m}".encode('utf-8'))
-                break
+               
+            elif logged_In and user_input=="5":
+                client_socket.send(f"/unhide {usr} {m}".encode('utf-8'))
+                print("your online status can be seen by everyone")
+
+            elif logged_In and user_input == "6":
+                try:
+                    recipients_str = input("Enter list of recipients (space-separated usernames): ")
+                    broadcast_message = input("Enter broadcast message: ")
+                    client_socket.send(f"/broadcast {recipients_str} {broadcast_message}".encode('utf-8'))
+
+                except Exception as e:
+                    print(f"An unexpected error occurred: {e}")
+
             else:
                 print("Invalid command.")
 
@@ -266,5 +281,3 @@ if __name__ == "__main__":
     # Wait for both threads to finish
     udp_thread.join()
     tcp_thread.join()
-    
-    print("Threads joined. Exiting...")
